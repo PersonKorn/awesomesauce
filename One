@@ -1,0 +1,183 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- UI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FreecamUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+
+local button = Instance.new("TextButton")
+button.Name = "FreecamButton"
+button.Text = "Enter Freecam"
+button.Font = Enum.Font.GothamBold
+button.TextScaled = true
+button.TextColor3 = Color3.new(1, 1, 1)
+button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+button.BorderSizePixel = 0
+button.Size = UDim2.fromOffset(200, 40)
+button.Position = UDim2.new(0.5, -100, 0, 10)
+button.Parent = screenGui
+Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+
+-- State
+local active = false
+local connStepped
+local humanoid
+local rootPart
+
+-- Config
+local moveSpeed = 32
+local fastMult = 3
+local slowMult = 0.25
+local lookSensitivity = 0.18
+
+local yaw = 0
+local pitch = 0
+local lookConn
+
+-- Character utils
+local function getCharacter()
+	local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+	humanoid = char:WaitForChild("Humanoid")
+	rootPart = char:WaitForChild("HumanoidRootPart")
+	return char
+end
+
+local function setJumpBlocked(block)
+	if not humanoid then return end
+	local actionName = "BlockJump"
+	if block then
+		ContextActionService:BindActionAtPriority(
+			actionName,
+			function() return Enum.ContextActionResult.Sink end,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			Enum.KeyCode.Space
+		)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+	else
+		ContextActionService:UnbindAction(actionName)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+		humanoid.JumpPower = 50
+		humanoid.JumpHeight = 7.2
+	end
+end
+
+local function anchorCharacter(anchor)
+	if rootPart then
+		rootPart.Anchored = anchor
+	end
+	if humanoid then
+		humanoid.WalkSpeed = anchor and 0 or 16
+		humanoid.AutoRotate = not anchor
+	end
+end
+
+-- Input utils
+local function readMoveInput()
+	local dir = Vector3.zero
+	-- swapped W/S
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += Vector3.new(0, 0, 1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir += Vector3.new(0, 0, -1) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir += Vector3.new(-1, 0, 0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += Vector3.new(1, 0, 0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.E) then dir += Vector3.new(0, 1, 0) end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Q) then dir += Vector3.new(0, -1, 0) end
+	if dir.Magnitude > 0 then
+		dir = dir.Unit
+	end
+	return dir
+end
+
+local function getSpeedMultiplier()
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+		return fastMult
+	elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		return slowMult
+	end
+	return 1
+end
+
+local function bindLook()
+	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	UserInputService.MouseIconEnabled = false
+	return UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			yaw -= input.Delta.X * lookSensitivity * 0.01
+			pitch -= input.Delta.Y * lookSensitivity * 0.01
+			pitch = math.clamp(pitch, -math.rad(89), math.rad(89))
+		end
+	end)
+end
+
+-- Freecam toggle
+local function enterFreecam()
+	if active then return end
+	getCharacter()
+	anchorCharacter(true)
+	setJumpBlocked(true)
+
+	camera.CameraType = Enum.CameraType.Scriptable
+	local startCFrame = camera.CFrame
+	yaw = math.atan2(-startCFrame.LookVector.X, -startCFrame.LookVector.Z)
+	pitch = math.asin(startCFrame.LookVector.Y)
+	local pos = startCFrame.Position
+
+	lookConn = bindLook()
+	connStepped = RunService.RenderStepped:Connect(function(dt)
+		local moveDir = readMoveInput()
+		local speed = moveSpeed * getSpeedMultiplier()
+		local cf = CFrame.new(pos) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
+		local look = cf.LookVector
+		local right = cf.RightVector
+		local up = Vector3.new(0, 1, 0)
+		local worldMove = (right * moveDir.X) + (up * moveDir.Y) + (look * moveDir.Z)
+		pos += worldMove * speed * dt
+		camera.CFrame = CFrame.new(pos, pos + look)
+	end)
+
+	button.Text = "Exit Freecam"
+	active = true
+end
+
+local function exitFreecam()
+	if not active then return end
+	if connStepped then connStepped:Disconnect() connStepped = nil end
+	if lookConn then lookConn:Disconnect() lookConn = nil end
+
+	UserInputService.MouseIconEnabled = true
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	camera.CameraType = Enum.CameraType.Custom
+	camera.CameraSubject = humanoid
+
+	anchorCharacter(false)
+	setJumpBlocked(false)
+	button.Text = "Enter Freecam"
+	active = false
+end
+
+-- Button toggle
+button.MouseButton1Click:Connect(function()
+	if active then exitFreecam() else enterFreecam() end
+end)
+
+-- Keybind toggle (M)
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.M then
+		if active then exitFreecam() else enterFreecam() end
+	end
+end)
+
+-- Safety
+localPlayer.CharacterAdded:Connect(function()
+	if active then exitFreecam() end
+end)
