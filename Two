@@ -1,0 +1,121 @@
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+
+local NAME_HEIGHT = 16
+local DISPLAY_HEIGHT = 18
+local PADDING = 2
+local WIDTH = 200
+local STUDS_OFFSET = Vector3.new(0, 3.25, 0)
+
+local function makeLabel(text, size, bold)
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, size)
+    label.Text = text
+    label.TextScaled = true
+    label.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextStrokeTransparency = 0.5
+    label.ZIndex = 2
+    return label
+end
+
+local function attachBillboard(player, character)
+    if not character then return end
+    local head = character:FindFirstChild("Head") or character:FindFirstChildWhichIsA("BasePart")
+    if not head then
+        character.ChildAdded:Connect(function(c)
+            if c.Name == "Head" or c:IsA("BasePart") then
+                attachBillboard(player, character)
+            end
+        end)
+        return
+    end
+
+    if head:FindFirstChild("NameDisplay") then return end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "NameDisplay"
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, WIDTH, 0, DISPLAY_HEIGHT + NAME_HEIGHT + PADDING)
+    billboard.StudsOffset = STUDS_OFFSET
+    billboard.Adornee = head
+    billboard.MaxDistance = 150
+
+    local frame = Instance.new("Frame")
+    frame.BackgroundTransparency = 1
+    frame.Size = UDim2.fromScale(1, 1)
+    frame.Parent = billboard
+
+    local uiList = Instance.new("UIListLayout")
+    uiList.FillDirection = Enum.FillDirection.Vertical
+    uiList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    uiList.VerticalAlignment = Enum.VerticalAlignment.Center
+    uiList.Padding = UDim.new(0, PADDING)
+    uiList.SortOrder = Enum.SortOrder.LayoutOrder
+    uiList.Parent = frame
+
+    local display = makeLabel(player.DisplayName, DISPLAY_HEIGHT, true)
+    display.LayoutOrder = 1
+    display.Parent = frame
+
+    local username = makeLabel("@" .. player.Name, NAME_HEIGHT, false)
+    username.TextTransparency = 0.1
+    username.LayoutOrder = 2
+    username.Parent = frame
+
+    local uIPadding = Instance.new("UIPadding")
+    uIPadding.PaddingLeft = UDim.new(0, 6)
+    uIPadding.PaddingRight = UDim.new(0, 6)
+    uIPadding.Parent = frame
+
+    billboard.Parent = head
+
+    local con1, con2
+    con1 = player:GetPropertyChangedSignal("DisplayName"):Connect(function()
+        if display and display.Parent then
+            display.Text = player.DisplayName
+        else
+            if con1 then con1:Disconnect() end
+        end
+    end)
+    con2 = character.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            if con1 then con1:Disconnect() end
+            if con2 then con2:Disconnect() end
+        end
+    end)
+end
+
+local function onCharacter(player, character)
+    if not character then return end
+    if character.PrimaryPart == nil then
+        character:GetPropertyChangedSignal("PrimaryPart"):Wait()
+    end
+    attachBillboard(player, character)
+end
+
+local function setupPlayer(player)
+    if player.Character then onCharacter(player, player.Character) end
+    player.CharacterAdded:Connect(function(char)
+        onCharacter(player, char)
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    setupPlayer(p)
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+
+RS.Stepped:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        local char = p.Character
+        if char then
+            local head = char:FindFirstChild("Head") or char:FindFirstChildWhichIsA("BasePart")
+            if head and not head:FindFirstChild("NameDisplay") then
+                attachBillboard(p, char)
+            end
+        end
+    end
+end)
